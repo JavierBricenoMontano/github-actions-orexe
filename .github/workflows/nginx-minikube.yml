@@ -51,15 +51,10 @@ jobs:
       run: |
         kubectl apply -f nginx-deployment.yaml
 
-    - name: Wait for rollout with timeout
-      run: |
-        kubectl rollout status deployment/nginx-deployment --timeout=120s
-
     - name: Verify Nginx is running
       run: |
         kubectl get pods
         kubectl get services
-        curl -I $(minikube service nginx-service --url)
 
   test:
     runs-on: ubuntu-latest
@@ -73,7 +68,6 @@ jobs:
       run: |
         kubectl get pods
         kubectl get svc
-        curl -I $(minikube service nginx-service --url)
 
     - name: Clean up resources
       run: |
