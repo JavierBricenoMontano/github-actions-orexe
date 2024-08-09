@@ -1,0 +1,84 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout the repo
+      uses: actions/checkout@v2
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build and push Docker image
+      run: |
+        IMAGE_URI="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:latest"
+        docker build -t $IMAGE_URI ./nginx
+        docker push $IMAGE_URI
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+    - name: Checkout the repo
+      uses: actions/checkout@v2
+
+    - name: Set up Minikube
+      uses: manusa/actions-setup-minikube@v2
+      with:
+        minikube-version: 'v1.25.0'
+        kubernetes-version: 'v1.22.3'
+        driver: docker
+
+    - name: Pull Docker image from ECR
+      run: |
+        IMAGE_URI="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:latest"
+        kubectl create deployment nginx --image=$IMAGE_URI
+
+    - name: Expose the deployment
+      run: |
+        kubectl expose deployment nginx --type=NodePort --port=80
+
+    - name: Wait for rollout
+      run: |
+        kubectl rollout status deployment/nginx
+
+    - name: Verify Nginx is running
+      run: |
+        kubectl get pods
+        kubectl get services
+        curl -I $(minikube service nginx --url)
+
+  test:
+    runs-on: ubuntu-latest
+    needs: deploy
+
+    steps:
+    - name: Checkout the repo
+      uses: actions/checkout@v2
+
+    - name: Verify Nginx deployment
+      run: |
+        kubectl get pods
+        kubectl get svc
+        curl -I $(minikube service nginx --url)
+
+    - name: Clean up resources
+      run: |
+        kubectl delete svc nginx
+        kubectl delete deployment nginx
